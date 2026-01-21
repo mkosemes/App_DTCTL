@@ -1,0 +1,197 @@
+from __future__ import annotations
+
+import io
+from pathlib import Path
+from typing import Dict, List
+
+import pandas as pd
+import streamlit as st
+
+from scraper import CATEGORIES, clean_records, dedupe_records, scrape_category
+
+DATA_DIR = Path(__file__).resolve().parent / "data"
+SAMPLE_RAW_PATH = DATA_DIR / "web_scraper_raw.csv"
+DEFAULT_FORM_URL = "https://forms.gle/your-form"
+
+
+def ensure_sample_file() -> None:
+    if not SAMPLE_RAW_PATH.exists():
+        raise FileNotFoundError(
+            "Sample Web Scraper file not found at "
+            f"{SAMPLE_RAW_PATH}. Please add it to the data folder."
+        )
+
+
+def load_sample_raw() -> pd.DataFrame:
+    ensure_sample_file()
+    return pd.read_csv(SAMPLE_RAW_PATH)
+
+
+def csv_download(df: pd.DataFrame) -> bytes:
+    buffer = io.StringIO()
+    df.to_csv(buffer, index=False)
+    return buffer.getvalue().encode("utf-8")
+
+
+@st.cache_data(show_spinner=False)
+def scrape_multiple(categories: List[str], pages: int) -> pd.DataFrame:
+    records: List[Dict[str, str]] = []
+    for key in categories:
+        meta = CATEGORIES[key]
+        items = scrape_category(meta["url"], meta["type"], pages=pages)
+        for item in items:
+            item["categorie"] = key
+        records.extend(items)
+    return pd.DataFrame(records)
+
+
+def main() -> None:
+    st.set_page_config(page_title="CoinAfrique Scraper", layout="wide")
+    st.title("CoinAfrique Scraper et Dashboard")
+    st.caption(
+        "Scraping multi-pages avec BeautifulSoup, telechargement "
+        "Web Scraper, dashboard nettoye, et formulaire d'evaluation."
+    )
+
+    tabs = st.tabs(
+        [
+            "Scraping BeautifulSoup",
+            "Web Scraper (raw)",
+            "Dashboard (nettoye)",
+            "Evaluation",
+        ]
+    )
+
+    with tabs[0]:
+        st.subheader("Scraper et nettoyer (BeautifulSoup)")
+        st.write(
+            "Selectionnez des categories, puis indiquez le nombre de pages "
+            "a scraper. Les donnees sont nettoyees apres extraction."
+        )
+
+        options = list(CATEGORIES.keys())
+        selected = st.multiselect(
+            "Categories",
+            options=options,
+            default=options[:2],
+            format_func=lambda key: CATEGORIES[key]["label"],
+        )
+        pages = st.number_input("Nombre de pages", min_value=1, max_value=20, value=2)
+        show_raw = st.checkbox("Afficher aussi les donnees brutes", value=False)
+
+        if st.button("Lancer le scraping", type="primary"):
+            if not selected:
+                st.warning("Veuillez choisir au moins une categorie.")
+            else:
+                try:
+                    with st.spinner("Scraping en cours..."):
+                        raw_df = scrape_multiple(selected, int(pages))
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Echec du scraping: {exc}")
+                    raw_df = pd.DataFrame()
+                if raw_df.empty:
+                    st.error("Aucune annonce trouvee. Essayez avec plus de pages.")
+                else:
+                    cleaned = clean_records(raw_df.to_dict(orient="records"))
+                    cleaned = dedupe_records(cleaned)
+                    cleaned_df = pd.DataFrame(cleaned)
+
+                    st.success(f"{len(cleaned_df)} lignes nettoyees.")
+                    st.dataframe(cleaned_df, use_container_width=True)
+
+                    if show_raw:
+                        st.markdown("**Donnees brutes**")
+                        st.dataframe(raw_df, use_container_width=True)
+
+                    st.download_button(
+                        "Telecharger les donnees nettoyees (CSV)",
+                        data=csv_download(cleaned_df),
+                        file_name="coinafrique_clean.csv",
+                        mime="text/csv",
+                    )
+
+    with tabs[1]:
+        st.subheader("Telecharger des donnees Web Scraper (non nettoyees)")
+        st.write(
+            "Chargez un export CSV de Web Scraper (non nettoye). "
+            "Vous pouvez aussi telecharger un exemple."
+        )
+
+        sample_df = load_sample_raw()
+        st.download_button(
+            "Telecharger l'exemple Web Scraper (CSV)",
+            data=csv_download(sample_df),
+            file_name="web_scraper_raw.csv",
+            mime="text/csv",
+        )
+
+        uploaded = st.file_uploader("Importer un CSV Web Scraper", type=["csv"])
+        if uploaded is not None:
+            raw_df = pd.read_csv(uploaded)
+            st.session_state["raw_webscraper_df"] = raw_df
+            st.success(f"{len(raw_df)} lignes chargees.")
+            st.dataframe(raw_df, use_container_width=True)
+        else:
+            st.session_state["raw_webscraper_df"] = sample_df
+            st.dataframe(sample_df, use_container_width=True)
+
+    with tabs[2]:
+        st.subheader("Dashboard des donnees nettoyees (Web Scraper)")
+        raw_df = st.session_state.get("raw_webscraper_df", load_sample_raw())
+
+        cleaned = clean_records(raw_df.to_dict(orient="records"))
+        cleaned = dedupe_records(cleaned)
+        cleaned_df = pd.DataFrame(cleaned)
+
+        if cleaned_df.empty:
+            st.warning("Aucune donnee disponible pour le dashboard.")
+        else:
+            price_series = cleaned_df["prix"].dropna()
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total annonces", len(cleaned_df))
+            col2.metric("Prix moyen (FCFA)", int(price_series.mean()) if not price_series.empty else 0)
+            col3.metric("Annonces sans prix", int(cleaned_df["prix"].isna().sum()))
+
+            st.markdown("**Prix moyen par type**")
+            price_by_type = (
+                cleaned_df.dropna(subset=["prix"])
+                .groupby("type", dropna=False)["prix"]
+                .mean()
+                .sort_values(ascending=False)
+            )
+            st.bar_chart(price_by_type)
+
+            st.markdown("**Top adresses**")
+            top_locations = (
+                cleaned_df["adresse"]
+                .fillna("Inconnue")
+                .value_counts()
+                .head(10)
+                .rename_axis("adresse")
+                .to_frame("nb")
+            )
+            st.bar_chart(top_locations)
+
+            st.markdown("**Apercu des donnees nettoyees**")
+            st.dataframe(cleaned_df, use_container_width=True)
+
+            st.download_button(
+                "Telecharger les donnees nettoyees (CSV)",
+                data=csv_download(cleaned_df),
+                file_name="web_scraper_clean.csv",
+                mime="text/csv",
+            )
+
+    with tabs[3]:
+        st.subheader("Formulaire d'evaluation")
+        st.write(
+            "Renseignez le lien de votre formulaire Kobo ou Google Forms, "
+            "puis cliquez pour l'ouvrir."
+        )
+        form_url = st.text_input("Lien du formulaire", value=DEFAULT_FORM_URL)
+        if form_url:
+            st.link_button("Ouvrir le formulaire", form_url)
+
+
+if __name__ == "__main__":
+    main()
