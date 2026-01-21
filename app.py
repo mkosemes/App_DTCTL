@@ -143,44 +143,101 @@ def main() -> None:
         cleaned = dedupe_records(cleaned)
         cleaned_df = pd.DataFrame(cleaned)
 
+        st.sidebar.header("Filtres du dashboard")
+        st.sidebar.caption("Les filtres s'appliquent aux donnees nettoyees.")
+
         if cleaned_df.empty:
+            st.sidebar.info("Aucune donnee a filtrer.")
             st.warning("Aucune donnee disponible pour le dashboard.")
         else:
-            price_series = cleaned_df["prix"].dropna()
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total annonces", len(cleaned_df))
-            col2.metric("Prix moyen (FCFA)", int(price_series.mean()) if not price_series.empty else 0)
-            col3.metric("Annonces sans prix", int(cleaned_df["prix"].isna().sum()))
-
-            st.markdown("**Prix moyen par type**")
-            price_by_type = (
-                cleaned_df.dropna(subset=["prix"])
-                .groupby("type", dropna=False)["prix"]
-                .mean()
-                .sort_values(ascending=False)
+            available_types = (
+                cleaned_df["type"].dropna().unique().tolist()
+                if "type" in cleaned_df
+                else []
             )
-            st.bar_chart(price_by_type)
-
-            st.markdown("**Top adresses**")
-            top_locations = (
-                cleaned_df["adresse"]
-                .fillna("Inconnue")
-                .value_counts()
-                .head(10)
-                .rename_axis("adresse")
-                .to_frame("nb")
+            selected_types = st.sidebar.multiselect(
+                "Type",
+                options=available_types,
+                default=available_types,
             )
-            st.bar_chart(top_locations)
-
-            st.markdown("**Apercu des donnees nettoyees**")
-            st.dataframe(cleaned_df, use_container_width=True)
-
-            st.download_button(
-                "Telecharger les donnees nettoyees (CSV)",
-                data=csv_download(cleaned_df),
-                file_name="web_scraper_clean.csv",
-                mime="text/csv",
+            address_query = st.sidebar.text_input("Recherche adresse")
+            include_no_price = st.sidebar.checkbox(
+                "Inclure annonces sans prix", value=True
             )
+
+            filtered_df = cleaned_df.copy()
+            if selected_types:
+                filtered_df = filtered_df[filtered_df["type"].isin(selected_types)]
+            if address_query:
+                filtered_df = filtered_df[
+                    filtered_df["adresse"].str.contains(
+                        address_query, case=False, na=False
+                    )
+                ]
+
+            price_series = filtered_df["prix"].dropna()
+            if not price_series.empty:
+                min_price = int(price_series.min())
+                max_price = int(price_series.max())
+                if min_price == max_price:
+                    min_price = max(0, min_price - 1)
+                    max_price = max_price + 1
+                price_range = st.sidebar.slider(
+                    "Prix (FCFA)",
+                    min_value=min_price,
+                    max_value=max_price,
+                    value=(min_price, max_price),
+                )
+                if include_no_price:
+                    price_mask = filtered_df["prix"].between(*price_range) | filtered_df[
+                        "prix"
+                    ].isna()
+                else:
+                    price_mask = filtered_df["prix"].between(*price_range)
+                filtered_df = filtered_df[price_mask]
+            elif not include_no_price:
+                filtered_df = filtered_df[filtered_df["prix"].notna()]
+
+            if filtered_df.empty:
+                st.warning("Aucune donnee apres filtrage.")
+            else:
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total annonces", len(filtered_df))
+                col2.metric(
+                    "Prix moyen (FCFA)",
+                    int(price_series.mean()) if not price_series.empty else 0,
+                )
+                col3.metric("Annonces sans prix", int(filtered_df["prix"].isna().sum()))
+
+                st.markdown("**Prix moyen par type**")
+                price_by_type = (
+                    filtered_df.dropna(subset=["prix"])
+                    .groupby("type", dropna=False)["prix"]
+                    .mean()
+                    .sort_values(ascending=False)
+                )
+                st.bar_chart(price_by_type)
+
+                st.markdown("**Top adresses**")
+                top_locations = (
+                    filtered_df["adresse"]
+                    .fillna("Inconnue")
+                    .value_counts()
+                    .head(10)
+                    .rename_axis("adresse")
+                    .to_frame("nb")
+                )
+                st.bar_chart(top_locations)
+
+                st.markdown("**Apercu des donnees nettoyees**")
+                st.dataframe(filtered_df, use_container_width=True)
+
+                st.download_button(
+                    "Telecharger les donnees nettoyees (CSV)",
+                    data=csv_download(filtered_df),
+                    file_name="web_scraper_clean.csv",
+                    mime="text/csv",
+                )
 
     with tabs[3]:
         st.subheader("Formulaire d'evaluation")
