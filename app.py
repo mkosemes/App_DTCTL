@@ -11,7 +11,7 @@ from scraper import CATEGORIES, clean_records, dedupe_records, scrape_category
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 SAMPLE_RAW_PATH = DATA_DIR / "web_scraper_raw.csv"
-DEFAULT_FORM_URL = "https://forms.gle/your-form"
+DEFAULT_FORM_URL = "https://ee.kobotoolbox.org/x/UUtyFL64"
 
 
 def ensure_sample_file() -> None:
