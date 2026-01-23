@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 from pathlib import Path
 from typing import Dict, List
 
@@ -33,7 +34,34 @@ def ensure_sample_file() -> None:
 # Charge les donnees brutes (non nettoyees).
 def load_sample_raw() -> pd.DataFrame:
     ensure_sample_file()
-    return pd.read_csv(SAMPLE_RAW_PATH)
+    raw_df = pd.read_csv(SAMPLE_RAW_PATH)
+    return expand_sample_df(raw_df, target_rows=3000)
+
+
+# Duplique l'echantillon pour obtenir assez de lignes.
+def expand_sample_df(df: pd.DataFrame, target_rows: int = 3000) -> pd.DataFrame:
+    if len(df) >= target_rows:
+        return df
+
+    base = df.copy().reset_index(drop=True)
+    batches = []
+    total = len(base)
+    repeat = math.ceil(target_rows / max(total, 1))
+
+    for i in range(repeat):
+        batch = base.copy()
+        if i > 0:
+            suffix = f" (lot {i + 1})"
+            batch["adresse"] = batch["adresse"].astype(str) + suffix
+            batch["image_lien"] = batch["image_lien"].astype(str).str.replace(
+                ".jpg",
+                f"_{i + 1}.jpg",
+                regex=False,
+            )
+        batches.append(batch)
+
+    expanded = pd.concat(batches, ignore_index=True).head(target_rows)
+    return expanded
 
 
 # Convertit un DataFrame en CSV telechargeable.
@@ -272,10 +300,7 @@ def main() -> None:
 
     with tabs[3]:
         st.subheader("Formulaire d'evaluation")
-        st.write(
-            "Renseignez le lien de votre formulaire Kobo ou Google Forms, "
-            "puis cliquez pour l'ouvrir."
-        )
+        st.write("Veuillez remplir ce formulaire pour nous aider a ameliorer le service.")
         # Masquer le lien dans l'interface.
         form_url = st.text_input(
             "Lien du formulaire (masque)", value=DEFAULT_FORM_URL, type="password"
