@@ -4,11 +4,17 @@ import io
 from pathlib import Path
 from typing import Dict, List
 
-import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
 from scraper import CATEGORIES, clean_records, dedupe_records, scrape_category
+
+# Matplotlib est utilise pour le diagramme circulaire.
+# Si la dependance manque, on affiche un fallback.
+try:  # noqa: BLE001
+    import matplotlib.pyplot as plt
+except Exception:  # noqa: BLE001
+    plt = None
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 SAMPLE_RAW_PATH = DATA_DIR / "web_scraper_raw.csv"
@@ -237,15 +243,22 @@ def main() -> None:
                     .rename_axis("type")
                     .to_frame("nb")
                 )
-                fig, ax = plt.subplots()
-                ax.pie(
-                    type_counts["nb"],
-                    labels=type_counts.index,
-                    autopct="%1.0f%%",
-                    startangle=90,
-                )
-                ax.axis("equal")
-                st.pyplot(fig, use_container_width=True)
+                if plt is None:
+                    st.info(
+                        "Matplotlib n'est pas installe. "
+                        "Diagramme circulaire remplace par un histogramme."
+                    )
+                    st.bar_chart(type_counts)
+                else:
+                    fig, ax = plt.subplots()
+                    ax.pie(
+                        type_counts["nb"],
+                        labels=type_counts.index,
+                        autopct="%1.0f%%",
+                        startangle=90,
+                    )
+                    ax.axis("equal")
+                    st.pyplot(fig, use_container_width=True)
 
                 st.markdown("**Apercu des donnees nettoyees**")
                 st.dataframe(filtered_df, use_container_width=True)
