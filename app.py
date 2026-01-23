@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 from typing import Dict, List
 
+import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
@@ -14,6 +15,7 @@ SAMPLE_RAW_PATH = DATA_DIR / "web_scraper_raw.csv"
 DEFAULT_FORM_URL = "https://ee.kobotoolbox.org/x/UUtyFL64"
 
 
+# Verifie la presence du fichier d'exemple Web Scraper.
 def ensure_sample_file() -> None:
     if not SAMPLE_RAW_PATH.exists():
         raise FileNotFoundError(
@@ -22,17 +24,20 @@ def ensure_sample_file() -> None:
         )
 
 
+# Charge les donnees brutes (non nettoyees).
 def load_sample_raw() -> pd.DataFrame:
     ensure_sample_file()
     return pd.read_csv(SAMPLE_RAW_PATH)
 
 
+# Convertit un DataFrame en CSV telechargeable.
 def csv_download(df: pd.DataFrame) -> bytes:
     buffer = io.StringIO()
     df.to_csv(buffer, index=False)
     return buffer.getvalue().encode("utf-8")
 
 
+# Cache pour eviter de relancer le scraping inutilement.
 @st.cache_data(show_spinner=False)
 def scrape_multiple(categories: List[str], pages: int) -> pd.DataFrame:
     records: List[Dict[str, str]] = []
@@ -46,6 +51,7 @@ def scrape_multiple(categories: List[str], pages: int) -> pd.DataFrame:
 
 
 def main() -> None:
+    # Configuration principale de la page.
     st.set_page_config(page_title="CoinAfrique Scraper", layout="wide")
     st.title("CoinAfrique Scraper et Dashboard")
     st.caption(
@@ -92,6 +98,7 @@ def main() -> None:
                 if raw_df.empty:
                     st.error("Aucune annonce trouvee. Essayez avec plus de pages.")
                 else:
+                    # Nettoyage et suppression des doublons.
                     cleaned = clean_records(raw_df.to_dict(orient="records"))
                     cleaned = dedupe_records(cleaned)
                     cleaned_df = pd.DataFrame(cleaned)
@@ -137,12 +144,14 @@ def main() -> None:
 
     with tabs[2]:
         st.subheader("Dashboard des donnees nettoyees (Web Scraper)")
+        # Recuperation des donnees brutes depuis l'etat ou le fichier exemple.
         raw_df = st.session_state.get("raw_webscraper_df", load_sample_raw())
 
         cleaned = clean_records(raw_df.to_dict(orient="records"))
         cleaned = dedupe_records(cleaned)
         cleaned_df = pd.DataFrame(cleaned)
 
+        # Sidebar pour les filtres.
         st.sidebar.header("Filtres du dashboard")
         st.sidebar.caption("Les filtres s'appliquent aux donnees nettoyees.")
 
@@ -150,6 +159,7 @@ def main() -> None:
             st.sidebar.info("Aucune donnee a filtrer.")
             st.warning("Aucune donnee disponible pour le dashboard.")
         else:
+            # Filtres de base: type, adresse, prix.
             available_types = (
                 cleaned_df["type"].dropna().unique().tolist()
                 if "type" in cleaned_df
@@ -218,16 +228,24 @@ def main() -> None:
                 )
                 st.bar_chart(price_by_type)
 
-                st.markdown("**Top adresses**")
-                top_locations = (
-                    filtered_df["adresse"]
-                    .fillna("Inconnue")
+                # Diagramme circulaire pour la repartition par type.
+                st.markdown("**Repartition des annonces par type**")
+                type_counts = (
+                    filtered_df["type"]
+                    .fillna("inconnu")
                     .value_counts()
-                    .head(10)
-                    .rename_axis("adresse")
+                    .rename_axis("type")
                     .to_frame("nb")
                 )
-                st.bar_chart(top_locations)
+                fig, ax = plt.subplots()
+                ax.pie(
+                    type_counts["nb"],
+                    labels=type_counts.index,
+                    autopct="%1.0f%%",
+                    startangle=90,
+                )
+                ax.axis("equal")
+                st.pyplot(fig, use_container_width=True)
 
                 st.markdown("**Apercu des donnees nettoyees**")
                 st.dataframe(filtered_df, use_container_width=True)
@@ -245,7 +263,10 @@ def main() -> None:
             "Renseignez le lien de votre formulaire Kobo ou Google Forms, "
             "puis cliquez pour l'ouvrir."
         )
-        form_url = st.text_input("Lien du formulaire", value=DEFAULT_FORM_URL)
+        # Masquer le lien dans l'interface.
+        form_url = st.text_input(
+            "Lien du formulaire (masque)", value=DEFAULT_FORM_URL, type="password"
+        )
         if form_url:
             st.link_button("Ouvrir le formulaire", form_url)
 

@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import requests
 from bs4 import BeautifulSoup
 
+# En-tetes pour eviter les blocages simples.
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -15,6 +16,7 @@ DEFAULT_HEADERS = {
     )
 }
 
+# Config des categories a scraper.
 CATEGORIES = {
     "vetements-homme": {
         "label": "Vetements homme",
@@ -39,6 +41,7 @@ CATEGORIES = {
 }
 
 
+# Ajoute le numero de page dans l'URL.
 def build_page_url(base_url: str, page: int) -> str:
     if page <= 1:
         return base_url
@@ -49,12 +52,14 @@ def build_page_url(base_url: str, page: int) -> str:
     return urlunparse(parsed._replace(query=new_query))
 
 
+# Recupere le HTML d'une page.
 def fetch_html(url: str, timeout: int = 20) -> str:
     response = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout)
     response.raise_for_status()
     return response.text
 
 
+# Parse les cartes d'annonces.
 def parse_listings(html: str, item_type: str) -> List[Dict[str, str]]:
     soup = BeautifulSoup(html, "html.parser")
     cards = soup.select("div.card.ad__card")
@@ -81,6 +86,7 @@ def parse_listings(html: str, item_type: str) -> List[Dict[str, str]]:
     return records
 
 
+# Scrape plusieurs pages d'une categorie.
 def scrape_category(
     base_url: str,
     item_type: str,
@@ -98,10 +104,12 @@ def scrape_category(
     return results
 
 
+# Nettoie les espaces multiples.
 def normalize_whitespace(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip()
 
 
+# Convertit un prix texte en entier.
 def clean_price(price_text: str) -> Optional[int]:
     if not price_text:
         return None
@@ -112,6 +120,7 @@ def clean_price(price_text: str) -> Optional[int]:
     return int(digits) if digits else None
 
 
+# Nettoie les enregistrements bruts.
 def clean_records(records: Iterable[Dict[str, str]]) -> List[Dict[str, Optional[str]]]:
     cleaned: List[Dict[str, Optional[str]]] = []
     for row in records:
@@ -131,6 +140,7 @@ def clean_records(records: Iterable[Dict[str, str]]) -> List[Dict[str, Optional[
     return cleaned
 
 
+# Supprime les doublons simples.
 def dedupe_records(records: Iterable[Dict[str, Optional[str]]]) -> List[Dict[str, Optional[str]]]:
     seen = set()
     unique: List[Dict[str, Optional[str]]] = []
